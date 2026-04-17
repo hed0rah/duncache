@@ -1,45 +1,73 @@
 # Page Cache Utilities
 
-This repository contains utilities to manage and check the Linux page cache.
+Small Linux utilities for managing the page cache. Useful for cold-cache
+benchmarking, I/O investigation, and anything that needs to know or
+control what the kernel has cached from disk.
 
 ## Tools
 
-- `duncache`: Remove files in a directory from the Linux page cache using `POSIX_FADV_DONTNEED`.
-- `incache`: Check if files in a directory are in the Linux page cache.
+- `duncache`: evict files or directory trees from the page cache using
+  `posix_fadvise(..., POSIX_FADV_DONTNEED)`.
+- `incache`: report how many pages of a file (or tree) are resident in
+  the page cache, using `mincore()`.
 
-## Compilation
+## Build
 
 ```sh
-gcc -o duncache duncache.c
-gcc -o incache incache.c
+make
+```
 
-Example Usage:
+## Usage
 
-# Create a 1MB test file with random data
+```
+duncache [-q] [--no-sync] <path>...
+incache  [-q] [-j|--json]  <path>...
+```
+
+### duncache
+
+```
+-q, --quiet      no output unless an error occurs
+    --no-sync    skip fdatasync() before eviction
+```
+
+Exits 0 if every path was evicted, 1 if any failed.
+
+### incache
+
+```
+-q, --quiet      no output; exit code only
+-j, --json       one json object per path
+```
+
+Reports `cached/total pages (percent)`. Exits 0 if every path is fully
+cached, 1 if any path is partially or not cached, 2 on error.
+
+## Example
+
+```sh
+# create a 1 MiB test file
 dd if=/dev/urandom of=testfile bs=1M count=1
 
-# Output:
-1+0 records in
-1+0 records out
-1048576 bytes (1.0 MB, 1.0 MiB) copied, 0.0279166 s, 37.6 MB/s
-
-# Read the file to ensure it is loaded into the page cache
+# read it so the kernel caches it
 cat testfile > /dev/null
 
-# Check if the file is in the page cache
-./incache ./testfile
+# check residency
+./incache testfile
+# testfile	256/256 pages (100.0%)
 
-# Output:
-./testfile is in the page cache.
+# evict
+./duncache testfile
+# testfile -> POSIX_FADV_DONTNEED
 
-# Remove the file from the page cache
-./duncache ./testfile
+# check again
+./incache testfile
+# testfile	0/256 pages (0.0%)
 
-# Output:
-./testfile -> POSIX_FADV_DONTNEED
-
-# Check if the file is in the page cache again
-./incache ./testfile
-
-# Output:
-./testfile is NOT in the page cache.
+# scriptable use
+if ./incache -q testfile; then
+    echo "fully cached"
+else
+    echo "not (fully) cached"
+fi
+```
